@@ -4,12 +4,19 @@ import { useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { User } from "@supabase/supabase-js";
+import { getAuthError } from "@/utils/auth-errors";
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  signIn: (
+    email: string,
+    password: string
+  ) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string
+  ) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -21,47 +28,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    // Check active sessions and sets the user
+    let mounted = true;
+
+    // Check active sessions
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
+      if (mounted) {
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
     });
 
-    // Listen for changes on auth state (logged in, signed out, etc.)
+    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setLoading(false);
+      if (mounted) {
+        setUser(session?.user ?? null);
+        setLoading(false);
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
 
-    if (error) throw error;
-    router.push("/dashboard");
+      if (error) throw error;
+
+      router.push("/dashboard");
+      return { error: null };
+    } catch (error: any) {
+      return { error: getAuthError(error) };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) throw error;
-    router.push("/dashboard");
+      if (error) throw error;
+
+      router.push("/dashboard");
+      return { error: null };
+    } catch (error: any) {
+      return { error: getAuthError(error) };
+    }
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    router.push("/");
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      router.push("/");
+    } catch (error: any) {
+      console.error("Error signing out:", error.message);
+    }
   };
 
   return (
